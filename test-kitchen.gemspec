@@ -28,6 +28,7 @@ Gem::Specification.new do |gem|
   gem.add_dependency "net-ssh",         "~> 2.7"
   gem.add_dependency "safe_yaml",       "~> 1.0"
   gem.add_dependency "thor",            "~> 0.18"
+  gem.add_dependency "minitar",         "~> 0.5.4"
 
   gem.add_development_dependency "pry"
 

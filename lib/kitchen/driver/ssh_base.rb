@@ -16,6 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'archive/tar/minitar'
+
 module Kitchen
 
   module Driver
@@ -28,8 +30,9 @@ module Kitchen
     # @author Fletcher Nichol <fnichol@nichol.ca>
     class SSHBase < Base
 
-      default_config :sudo, true
-      default_config :port, 22
+      default_config :sudo,             true
+      default_config :port,             22
+      default_config :sandbox_archive,  'testkitchen-sandbox.tar.gz'
 
       # (see Base#create)
       def create(state) # rubocop:disable Lint/UnusedMethodArgument
@@ -40,12 +43,11 @@ module Kitchen
       def converge(state)
         provisioner = instance.provisioner
         provisioner.create_sandbox
-        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
 
         Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
           run_remote(provisioner.install_command, conn)
           run_remote(provisioner.init_command, conn)
-          transfer_path(sandbox_dirs, provisioner[:root_path], conn)
+          do_sandbox_transfer provisioner, conn
           run_remote(provisioner.prepare_command, conn)
           run_remote(provisioner.run_command, conn)
         end
@@ -178,6 +180,71 @@ module Kitchen
       # @api private
       def wait_for_sshd(hostname, username = nil, options = {})
         SSH.new(hostname, username, { :logger => logger }.merge(options)).wait
+      end
+
+
+      # Creates a temporary folder containing an archive of the current
+      # TestKitchen sandbox.
+      #
+      # @param sandbox_path [String]
+      def archive_sandbox(sandbox_path)
+        archive_dir  = Dir.mktmpdir("#{instance.name}-sandbox-archive-")
+        archive_file = "#{archive_dir}/#{self[:sandbox_archive]}"
+
+        Dir.chdir(sandbox_path) do |dir|
+          tgz = Zlib::GzipWriter.new(File.open(archive_file, 'wb'), Zlib::DEFAULT_COMPRESSION, Zlib::DEFAULT_STRATEGY)
+          Archive::Tar::Minitar.pack('.', tgz)
+        end
+
+        archive_dir
+      end
+
+      # Transfers the local sandbox to the instance.
+      # - Archives/extracts if the tar command is available remotely.
+      #
+      # @param provisioner [Kitchen::Provisioner::Base] the provisioner
+      # @param connection [Kitchen:SSH] an SSH connection
+      def do_sandbox_transfer(provisioner, connection)
+        root_path     = provisioner[:root_path]
+        sandbox_path  = provisioner.sandbox_path
+        archive_file  = self[:sandbox_archive]
+        archive_path  = false
+        do_archive    = remote_supports_tar? connection
+
+        begin
+          # Archive sandbox if enabled (We keep a copy of the archive path so that we do not)
+          # delete the sandbox if an exception is thrown
+          if do_archive
+            info 'Creating sandbox archive'
+            archive_path = archive_sandbox sandbox_path
+            sandbox_path = archive_path
+          end
+
+          # Initiate transfer
+          transfer_path(Dir.glob("#{sandbox_path}/*"), root_path, connection)
+
+          # Extract archive if enabled (and cleanup locally)
+          if do_archive
+            info 'Extracting sandbox archive remotely'
+            run_remote("tar xf #{root_path}/#{archive_file} -C #{root_path}", connection)
+          end
+        ensure
+          # Ensure archive temporary directory is removed, if used.
+          FileUtils.rmtree(archive_path) if archive_path
+        end
+      end
+
+      # Checks whether the remote instance supports archive extraction using
+      # the `tar` command.
+      #
+      # @param connection [Kitchen::SSH] an SSH connection
+      def remote_supports_tar?(connection)
+        begin
+          run_remote('tar --version > /dev/null 2>&1', connection)
+          return true
+        rescue ActionFailed => ex
+            return false
+        end
       end
     end
   end
