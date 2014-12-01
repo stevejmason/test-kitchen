@@ -30,7 +30,12 @@ module Kitchen
       default_config :client_rb, {}
       default_config :ruby_bindir, "/opt/chef/embedded/bin"
       default_config :json_attributes, true
+      default_config :chef_zero_host, nil
       default_config :chef_zero_port, 8889
+
+      default_config :chef_client_path do |provisioner|
+        File.join(provisioner[:chef_omnibus_root], %w[bin chef-client])
+      end
 
       # (see Base#create_sandbox)
       def create_sandbox
@@ -44,16 +49,17 @@ module Kitchen
       def prepare_command
         return if modern?
 
-        ruby_bin = config[:ruby_bindir]
+        ruby_bin = Pathname.new(config[:ruby_bindir])
+
         # we are installing latest chef in order to get chef-zero and
         # Chef::ChefFS only. The version of Chef that gets run will be
         # the installed omnibus package. Yep, this is funky :)
         cmd = <<-PREPARE.gsub(/^ {10}/, "")
           #{chef_client_zero_env(:export)}
-          if ! #{sudo("#{ruby_bin}/gem")} list chef-zero -i >/dev/null; then
+          if ! #{sudo(ruby_bin.join("gem"))} list chef-zero -i >/dev/null; then
             echo ">>>>>> Attempting to use chef-zero with old version of Chef"
             echo "-----> Installing chef zero dependencies"
-            #{sudo("#{ruby_bin}/gem")} install chef --no-ri --no-rdoc --conservative
+            #{sudo(ruby_bin.join("gem"))} install chef --no-ri --no-rdoc --conservative
           fi
         PREPARE
 
@@ -63,14 +69,18 @@ module Kitchen
       # (see Base#run_command)
       def run_command
         level = config[:log_level] == :info ? :auto : config[:log_level]
+        chef_client_bin = sudo(config[:chef_client_path])
 
-        cmd = modern? ? "#{sudo("chef-client")} --local-mode" : shim_command
+        cmd = modern? ? "#{chef_client_bin} --local-mode" : shim_command
         args = [
           "--config #{config[:root_path]}/client.rb",
           "--log_level #{level}",
           "--force-formatter",
           "--no-color"
         ]
+        if config[:chef_zero_host]
+          args <<  "--chef-zero-host #{config[:chef_zero_host]}"
+        end
         if config[:chef_zero_port]
           args <<  "--chef-zero-port #{config[:chef_zero_port]}"
         end

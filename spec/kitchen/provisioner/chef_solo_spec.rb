@@ -47,6 +47,12 @@ describe Kitchen::Provisioner::ChefSolo do
     it "sets :solo_rb to an empty Hash" do
       provisioner[:solo_rb].must_equal Hash.new
     end
+
+    it "sets :chef_solo_path to a path using :chef_omnibus_root" do
+      config[:chef_omnibus_root] = "/nice/place"
+
+      provisioner[:chef_solo_path].must_equal "/nice/place/bin/chef-solo"
+    end
   end
 
   describe "#create_sandbox" do
@@ -67,7 +73,7 @@ describe Kitchen::Provisioner::ChefSolo do
     describe "solo.rb file" do
 
       let(:file) do
-        IO.read(sandbox_path("solo.rb")).lines.map { |l| l.chomp }
+        IO.read(sandbox_path("solo.rb")).lines.map(&:chomp)
       end
 
       it "creates a solo.rb" do
@@ -229,16 +235,18 @@ describe Kitchen::Provisioner::ChefSolo do
     end
 
     it "uses sudo for chef-solo when configured" do
+      config[:chef_omnibus_root] = "/c"
       config[:sudo] = true
 
-      cmd.must_match regexify("sudo -E chef-solo ", :partial_line)
+      cmd.must_match regexify("sudo -E /c/bin/chef-solo ", :partial_line)
     end
 
     it "does not use sudo for chef-solo when configured" do
+      config[:chef_omnibus_root] = "/c"
       config[:sudo] = false
 
       cmd.must_match regexify("chef-solo ", :partial_line)
-      cmd.wont_match regexify("sudo -E chef-solo ", :partial_line)
+      cmd.wont_match regexify("sudo -E /c/bin/chef-solo ", :partial_line)
     end
 
     it "sets config flag on chef-solo" do

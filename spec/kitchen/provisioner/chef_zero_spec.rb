@@ -48,12 +48,22 @@ describe Kitchen::Provisioner::ChefZero do
       provisioner[:client_rb].must_equal Hash.new
     end
 
+    it "sets :chef_client_path to a path using :chef_omnibus_root" do
+      config[:chef_omnibus_root] = "/nice/place"
+
+      provisioner[:chef_client_path].must_equal "/nice/place/bin/chef-client"
+    end
+
     it "sets :ruby_bindir to use an Omnibus Ruby" do
       provisioner[:ruby_bindir].must_equal "/opt/chef/embedded/bin"
     end
 
     it "sets :json_attributes to true" do
       provisioner[:json_attributes].must_equal true
+    end
+
+    it "does not set :chef_zero_host" do
+      provisioner[:chef_zero_host].must_equal nil
     end
 
     it "sets :chef_zero_port to 8889" do
@@ -79,7 +89,7 @@ describe Kitchen::Provisioner::ChefZero do
     describe "client.rb file" do
 
       let(:file) do
-        IO.read(sandbox_path("client.rb")).lines.map { |l| l.chomp }
+        IO.read(sandbox_path("client.rb")).lines.map(&:chomp)
       end
 
       it "creates a client.rb" do
@@ -374,16 +384,18 @@ describe Kitchen::Provisioner::ChefZero do
       end
 
       it "uses sudo for chef-client when configured" do
+        config[:chef_omnibus_root] = "/c"
         config[:sudo] = true
 
-        cmd.must_match regexify("sudo -E chef-client ", :partial_line)
+        cmd.must_match regexify("sudo -E /c/bin/chef-client ", :partial_line)
       end
 
       it "does not use sudo for chef-client when configured" do
+        config[:chef_omnibus_root] = "/c"
         config[:sudo] = false
 
-        cmd.must_match regexify("chef-client ", :partial_line)
-        cmd.wont_match regexify("sudo -E chef-client ", :partial_line)
+        cmd.must_match regexify("/c/bin/chef-client ", :partial_line)
+        cmd.wont_match regexify("sudo -E /c/bin/chef-client ", :partial_line)
       end
 
       it "sets local mode flag on chef-client" do
@@ -423,10 +435,22 @@ describe Kitchen::Provisioner::ChefZero do
         cmd.must_match regexify(" --chef-zero-port 8889", :partial_line)
       end
 
+      it "sets chef zero host flag for custom host" do
+        config[:chef_zero_host] = '192.168.0.1'
+
+        cmd.must_match regexify(" --chef-zero-host 192.168.0.1", :partial_line)
+      end
+
       it "sets chef zero port flag for custom port" do
         config[:chef_zero_port] = 123
 
         cmd.must_match regexify(" --chef-zero-port 123", :partial_line)
+      end
+
+      it "does not set chef zero host flag when value is falsey" do
+        config[:chef_zero_host] = nil
+
+        cmd.wont_match regexify(" --chef-zero-host ", :partial_line)
       end
 
       it "does not set chef zero port flag when value is falsey" do
